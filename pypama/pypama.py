@@ -7,7 +7,7 @@ A pattern matching library (for things that are not characters)
 
 """
 import re
-from typing import List
+from typing import List, Optional
 
 
 class PatternParseError(Exception):
@@ -53,8 +53,8 @@ class TokenProvider:
     def __repr__(self):
         return repr(self.token_list[self.cursor:])
 
-    def start(self):
-        return repr(self.token_list[:self.cursor])
+    def append_tokens(self, *a):
+        self.token_list.extend(a)
 
     def sync_with(self, o: 'TokenProvider'):
         '''update cursor position and captures based on another TokenProvider'''
@@ -306,7 +306,6 @@ class PatternOptional(Pattern):
     def _match(self, x, with_follow=True):
         x0 = x.fork()
         if self.pattern._match(x0) and self._match_follow(x0):
-            # self.pattern._match(x)
             x.sync_with(x0)
             return True
         if self._match_follow(x):
@@ -462,11 +461,11 @@ class PatternStarNonGreedy(Pattern):
 
 
 class PatternCapture(Pattern):
-    name: str
+    name: Optional[str]
     pattern: Pattern
-    group: int
+    group: Optional[int]
 
-    def __init__(self, pattern: Pattern, name: str = None):
+    def __init__(self, pattern: Pattern, name: Optional[str] = None):
         self.name = name
         self.pattern = pattern
         self.group = None
@@ -605,7 +604,8 @@ TOKENS = re.compile(r"""(?x)
       >
      |\((?:\?P<\w+>)?
      |\\\d+
-     |[$.)!?*|])""")
+     |[$.)!?*|]
+     |\w+)""")
 
 
 def build_pattern(*args, **dct):
@@ -648,7 +648,7 @@ class F(Pattern, InversiblePattern):
         if isinstance(fun, F) or callable(fun):
             return F((lambda x: self.fun(x) and fun(x)), f'{self.__name__}&{fun.__name__}')
         else:
-            return super().__or__(fun)
+            return super().__and__(fun)
 
     def __not__(self):
         return F((lambda x: not self.fun(x)), f'{self.__name__}!')

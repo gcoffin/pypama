@@ -1,5 +1,6 @@
-import re
 import unittest
+
+import re
 
 from pypama import pypama as pm
 
@@ -144,7 +145,7 @@ class TestBasic(unittest.TestCase):
         )
         self.assertEqual(repr(g), '[a,([b|[c],o*]){[2]},d]')
 
-    def test_end(self):
+    def test_end2(self):
         g = pm._build_pattern(
             'a', '?', '{2}', 'b', '$'
         )
@@ -242,9 +243,64 @@ class TestFunctional(unittest.TestCase):
                          {'commentaire': ['toto']})
 
 
+class TestFunctions(unittest.TestCase):
+    def test_functions(self):
+        @pm.F
+        def is_str(x):
+            return isinstance(x, str)
+
+        pat = pm.build_pattern('.*(<c:is_str><c:is_int>)', is_str=is_str)
+        self.assertEqual(pat.match([2, 2, 4, 'toto', 6, 8]).groups(),
+                         [['toto', 6]])
+        self.assertIsNone(pat.match([2, 2, 4, 'toto', [], 1]))
+
+    def test_functions1(self):
+        @pm.F
+        def is_str(x):
+            return isinstance(x, str)
+
+        pat = pm.build_pattern('.*(<c:is_str>|<c:is_int>)',
+                               lambda x: x == 6, is_str=is_str)
+        self.assertEqual(pat.match([2, 2, 4, 'toto', 6, 8]).groups(),
+                         [['toto']])
+        self.assertIsNone(pat.match([2, 2, 4, 'toto', [], 6, 1]))
+
+    def test_functions2(self):
+        @pm.F
+        def is_str(x):
+            return isinstance(x, str)
+
+        pat = pm.build_pattern('.*(', is_str | pm.is_int, ')',
+                               lambda x: x == 6, is_str=is_str)
+        self.assertEqual(pat.match([2, 2, 4, 'toto', 6, 8]).groups(),
+                         [['toto']])
+        self.assertIsNone(pat.match([2, 2, 4, 'toto', [], 6, 1]))
+
+    def test_functions4(self):
+        @pm.F
+        def is_str(x):
+            return isinstance(x, str)
+
+        pat = pm.build_pattern('.*(', is_str & (lambda s: s.startswith('hello')),
+                               lambda x: x == 6, ')', is_str=is_str)
+        self.assertEqual(pat.match([2, 2, 4, 'hello world', 6, 8]).groups(),
+                         [['hello world', 6]])
+        self.assertIsNone(pat.match([2, 2, 4, 'toto', [], 6, 1]))
+
+
 class TestNamedPattern(unittest.TestCase):
     def test_named_capture(self):
         pat = pm.build_pattern('.*(?P<toto><re:bonj.ur>).*')
         a = pat.match(['titi', 'bonjaur'])
         self.assertIsNotNone(a)
         self.assertEqual(a.groupdict(), {'toto': ['bonjaur']})
+
+
+class TestIncrementalMatch(unittest.TestCase):
+    def test_incremental_basic(self):
+        pat = pm.build_pattern('a', 'b', 'c')
+        a = pm.TokenProvider(['a'])
+        self.assertIsNotNone(pat._match(a))
+        self.assertIsNone(pat.match(a.fork()))
+        a.append_tokens('b', 'c')
+        self.assertIsNotNone(pat._match(a))
