@@ -44,8 +44,14 @@ class TokenProvider:
     def fork(self):
         return TokenProvider(self.token_list, self.cursor, self.captures)
 
+    def copy(self):
+        return TokenProvider(self.token_list[:], self.cursor, self.captures.copy())
+
     def __len__(self):
         return len(self.token_list) - self.cursor
+
+    def check_not_empty(self):
+        return not self.is_empty()
 
     def is_empty(self):
         return self.cursor == len(self.token_list)
@@ -161,7 +167,7 @@ class PatternString(Pattern, InversiblePattern):
 
     def _match(self, x, with_follow=True):
         x0 = x.fork()
-        if ((not x0.is_empty()) and
+        if (x0.check_not_empty() and
                 self.value == x0.get()):
             # and self._match_follow(x0)):
             x.sync_with(x0)
@@ -181,7 +187,7 @@ class PatternRegex(Pattern, InversiblePattern):
 
     def _match(self, x, with_follow=True):
         x0 = x.fork()
-        if ((not x0.is_empty()) and
+        if (x0.check_not_empty() and
                 self.value.match(x0.get())):
             # and self._match_follow(x0)):
             x.sync_with(x0)
@@ -285,7 +291,7 @@ class PatternInv(Pattern):
     def _match(self, x, with_follow=True):
         x0 = x.fork()
         if not self.pattern._match(x0):
-            if x.is_empty():
+            if not x.check_not_empty():
                 return False
             x.get()
             return True
@@ -499,7 +505,7 @@ class PatternMatchCapture(Pattern):
         x0 = x.fork()
         to_match = x.captures[self.capture - 1]
         for token in to_match:
-            if ((x0.is_empty()) or
+            if (not x0.check_not_empty() or
                     token != x0.get()):
                 return False
         # and self._match_follow(x0)):
@@ -508,6 +514,37 @@ class PatternMatchCapture(Pattern):
 
     def __repr__(self):
         return f'\\{self.capture}'
+
+
+class PatternAnd(Pattern):
+    patterns: List[Pattern]
+
+    def __init__(self, *args):
+        super().__init__()
+        self.patterns = args
+
+    def set_follow(self, follow):
+        for i in self.patterns:
+            i.set_follow(follow)
+
+    def set_context(self, pattern_context):
+        super().set_context(pattern_context)
+        for i in self.patterns:
+            i.set_context(pattern_context)
+
+    def _match(self, x, with_follow=True):
+        x0 = None
+        if not self.patterns:
+            return True
+        for p in self.patterns:
+            x0 = x.fork()
+            if not p._match(x0):
+                return False
+        x.sync_with(x0)
+        return True
+
+    def __repr__(self):
+        return '&'.join(repr(i) for i in self.patterns)
 
 
 ANY = PatternAny()
@@ -564,6 +601,11 @@ def _build_pattern(*args, cursor=None, only_one=False, dct=None):
                 elif t == '|':
                     cursor[0] += 1
                     res[-1] = res[-1] | _build_pattern(*args, cursor=cursor, only_one=True, dct=dct)
+                elif t == '&':
+                    cursor[0] += 1
+                    res[-1] = PatternAnd(res[-1],
+                                         _build_pattern(*args, cursor=cursor, only_one=True,
+                                                        dct=dct))
                 elif re.match(r'\\\d+', t):
                     res.append(PatternMatchCapture(t))
                 elif t[0] == '<' and t[-1] == '>':
@@ -629,7 +671,7 @@ class F(Pattern, InversiblePattern):
 
     def _match(self, x, with_follow=True):
         x0 = x.fork()
-        if ((not x0.is_empty()) and
+        if (x0.check_not_empty() and
                 self(x0.get())):
             x.sync_with(x0)
             return True

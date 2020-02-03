@@ -8,7 +8,7 @@ HERE = pathlib.Path(__file__).parent
 README = (HERE / "README.rst").read_text()
 
 setup(name='pypama',
-      version='1.0',
+      version='1.1',
       description='Python Pattern Matching',
       long_description=README,
       author='Guillaume Coffin',
