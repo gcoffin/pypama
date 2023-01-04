@@ -78,21 +78,28 @@ class MatchObject:
         self.token_list = token_list
 
     def groups(self):
+        """Get all captured groups in a list"""
         result = []
         for i in range(len(self.context.groups)):
             result.append(self.captures.get(i, None))
         return result
 
     def group(self, number: int):
+        """Get capture group by index"""
         return self.captures[number - 1]
 
     def __repr__(self):
         return "<MatchObject>"
 
     def groupdict(self):
+        """Get all captured named groups in a dictionary"""
         return dict((i, j)
                     for i, j in zip(self.context.groups, self.groups())
                     if i is not None and j is not None)
+
+    def __getitem__(self, name):
+        """Get captured group by name"""
+        return self.captures[self.context.groups.index(name)]
 
 
 class PatternContext:
@@ -108,6 +115,7 @@ class PatternContext:
 
 
 class Pattern:
+    """Base class for patterns"""
     follow: 'Pattern'
 
     @classmethod
@@ -128,16 +136,29 @@ class Pattern:
     def __or__(self, a):
         return PatternOr(self, a)
 
+    def __and__(self, a):
+        return PatternAnd(self, a)
+
+    def __add__(self, a):
+        return PatternSeq([self, a])
+
     def star(self, greedy=True):
+        """implement the * and *? operator"""
         if greedy:
             return PatternStarGreedy(self)
         else:
             return PatternStarNonGreedy(self)
 
     def opt(self):
+        """implement the ? operator"""
         return PatternOptional(self)
 
+    def capture(self, name:Optional[str]=None):
+        """capture with optional name"""
+        return PatternCapture(self, name)
+
     def match(self, arg):
+        """check if matches the provided sequence list"""
         if not isinstance(arg, TokenProvider):
             arg = TokenProvider(arg)
         if self._match(arg):
@@ -149,18 +170,23 @@ class Pattern:
         raise NotImplementedError()
 
     def _match_follow(self, arg):
+        """check if the following token matches the following pattern. 
+        Required for pattern sequences containing multiple starred patterns. In
+        some instances this implementation is not sufficient."""
         if not self.follow:
-            return True  # arg.is_empty()
+            return True  
         arg = arg.fork()
         return self.follow._match(arg) and self.follow._match_follow(arg)
 
 
 class InversiblePattern:
+    """pattern that can implement the "not match" operator"""
     def __invert__(self):
         return PatternInv(self)
 
 
 class PatternString(Pattern, InversiblePattern):
+    """matches a string"""
     def __init__(self, value):
         super().__init__()
         self.value = value
@@ -169,13 +195,17 @@ class PatternString(Pattern, InversiblePattern):
         x0 = x.fork()
         if (x0.check_not_empty() and
                 self.value == x0.get()):
-            # and self._match_follow(x0)):
             x.sync_with(x0)
             return True
         return False
 
     def __repr__(self):
         return self.value
+
+    def clone(self):
+        return self.__class__(self.value)
+
+S = PatternString
 
 
 class PatternRegex(Pattern, InversiblePattern):
@@ -189,7 +219,6 @@ class PatternRegex(Pattern, InversiblePattern):
         x0 = x.fork()
         if (x0.check_not_empty() and
                 self.value.match(x0.get())):
-            # and self._match_follow(x0)):
             x.sync_with(x0)
             return True
         return False
@@ -197,10 +226,8 @@ class PatternRegex(Pattern, InversiblePattern):
     def __repr__(self):
         return f'[re:{self.value.pattern}]'
 
-    # def _match_all(self, x):
-    #     x0 = x.fork()
-    #     if not x0.is_empty() and self.value == x0.get():
-    #         yield x0
+    def clone(self):
+        return self.__class__(self.value)
 
 
 class PatternSeq(Pattern):
@@ -213,7 +240,12 @@ class PatternSeq(Pattern):
         self.patterns = list(patterns)
         for i, j in zip(self.patterns[:-1], self.patterns[1:]):
             i.set_follow(j)
-        # self.set_context(PatternContext(self.patterns))
+
+    def __repr__(self) -> str:
+        return repr(self.patterns)
+
+    def clone(self):
+        return self.__class__(i.clone() for i in self.patterns)
 
     def set_follow(self, follow):
         if not self.patterns:
@@ -239,15 +271,6 @@ class PatternSeq(Pattern):
     def __repr__(self):
         return f'[{",".join(repr(i) for i in self.patterns)}]'
 
-    # def _match_all(self, x):
-    #     x0 = x.fork()
-    #     if len(self.patterns) == 0:
-    #         yield x0
-    #         return
-    #     pattern, *tail = self.patterns
-    #     for xi in pattern._match_all(x0):
-    #         yield from PatternSeq(tail)._match_all(xi)
-
 
 class PatternOr(Pattern):
     patterns: List[Pattern]
@@ -255,6 +278,9 @@ class PatternOr(Pattern):
     def __init__(self, *args):
         super().__init__()
         self.patterns = args
+
+    def clone(self):
+        return self.__class__(*[i.clone() for i in self.patterns])
 
     def set_follow(self, follow):
         for i in self.patterns:
@@ -276,10 +302,6 @@ class PatternOr(Pattern):
     def __repr__(self):
         return '|'.join(repr(i) for i in self.patterns)
 
-    # def _match_all(self, x):
-    #     for p in self.patterns:
-    #         yield from p._match_all(x.fork())
-
 
 class PatternInv(Pattern):
     pattern: Pattern
@@ -296,6 +318,9 @@ class PatternInv(Pattern):
             x.get()
             return True
         return False
+
+    def clone(self):
+        return self.__class__(self.clone)
 
 
 class PatternOptional(Pattern):
@@ -318,13 +343,11 @@ class PatternOptional(Pattern):
             return True
         return False
 
-    # def _match_all(self, x):
-    #     x0 = x.fork()
-    #     yield from self.pattern._match_all(x0)
-    #     yield x.fork()
-
     def __repr__(self):
         return f'{self.pattern}?'
+
+    def clone(self):
+        return self.__class__(self.pattern)
 
 
 class PatternAny(Pattern):
@@ -338,10 +361,8 @@ class PatternAny(Pattern):
     def __repr__(self):
         return 'ANY'
 
-    # def _match_all(self, x):
-    #     if not x.is_empty():
-    #         x.get()
-    #         yield x
+    def clone(self):
+        return self.__class__()
 
 
 class PatternEnd(Pattern):
@@ -351,6 +372,8 @@ class PatternEnd(Pattern):
     def __repr__(self):
         return "$"
 
+    def clone(self):
+        return self.__class__()
 
 class PatternMult(Pattern):
     pattern: Pattern
@@ -377,24 +400,8 @@ class PatternMult(Pattern):
 
         return m(x, 0)
 
-    # def _match(self, x):
-    #     for mul in self.mults:
-    #         xf = x.fork()
-    #         print('\n--',mul, self.pattern, x, self.follow)
-    #         for i in range(mul):
-    #             print('  match?', self.pattern, xf)
-    #             if not self.pattern._match(xf):
-    #                 print('failed', i)
-    #                 break
-    #             print('     ', xf)
-    #         else:
-    #             print('match follow - ', self.follow,'-',  xf)
-    #             if self._match_follow(xf):
-    #                 print('yes')
-    #                 x.sync_with(xf)
-    #                 return True
-    #             print('no')
-    #     return False
+    def clone(self):
+        return self.__class__(self.pattern.clone(), self.mults)
 
     def __repr__(self):
         return f'{self.pattern}{{{self.mults}}}'
@@ -415,8 +422,6 @@ class PatternStarGreedy(Pattern):
         def m(x1):
             x0 = x1.fork()
             if self.pattern._match(x0) and m(x0):
-                # x2 = x1.fork()
-                # self.pattern._match(x2)
                 x1.sync_with(x0)
                 return True
             if self._match_follow(x1):
@@ -428,14 +433,8 @@ class PatternStarGreedy(Pattern):
     def __repr__(self):
         return f'{repr(self.pattern)}*'
 
-    # def _match_all(self, x):
-    #     x0 = x.fork()
-    #     for i in range(len(x0)):
-    #         print('#',i, self.pattern)
-    #         for xi in self.pattern._match_all(x0):
-    #             print(xi.start())
-    #             yield from self._match_all(xi)
-    #     yield x0
+    def clone(self):
+        return self.__class__(self.pattern.clone())
 
 
 class PatternStarNonGreedy(Pattern):
@@ -455,7 +454,6 @@ class PatternStarNonGreedy(Pattern):
                 return True
             x2 = x1.fork()
             if self.pattern._match(x2) and m(x2, level + 1):
-                # self.pattern._match(x) and m(x, level + 1)
                 x1.sync_with(x2)
                 return True
             return False
@@ -464,6 +462,9 @@ class PatternStarNonGreedy(Pattern):
 
     def __repr__(self):
         return f'{repr(self.pattern)}*?'
+
+    def clone(self):
+        return self.__class__(self.pattern.clone())
 
 
 class PatternCapture(Pattern):
@@ -489,16 +490,20 @@ class PatternCapture(Pattern):
     def _match(self, x: TokenProvider, with_follow=True):
         start = x.cursor
         result = self.pattern._match(x)
-        x.captures[self.group] = x.token_list[start:x.cursor]  # (start, x.cursor)
+        x.captures[self.group] = x.token_list[start:x.cursor]  
         return result
 
     def __repr__(self):
         return f'({self.pattern})'
 
+    def clone(self):
+        return self.__class__(self.pattern.clone(), self.name)
+
 
 class PatternMatchCapture(Pattern):
     def __init__(self, value):
         super().__init__()
+        self.value = value
         self.capture = int(re.match(r'\\(\d+)', value).group(1))
 
     def _match(self, x, with_follow=True):
@@ -508,13 +513,14 @@ class PatternMatchCapture(Pattern):
             if (not x0.check_not_empty() or
                     token != x0.get()):
                 return False
-        # and self._match_follow(x0)):
         x.sync_with(x0)
         return True
 
     def __repr__(self):
         return f'\\{self.capture}'
 
+    def clone(self):
+        return self.__class__(self.value)
 
 class PatternAnd(Pattern):
     patterns: List[Pattern]
@@ -546,6 +552,8 @@ class PatternAnd(Pattern):
     def __repr__(self):
         return '&'.join(repr(i) for i in self.patterns)
 
+    def clone(self):
+        return self.__class__(*[i.clone() for i in self.patterns])
 
 ANY = PatternAny()
 END = PatternEnd()
@@ -570,7 +578,7 @@ def _build_pattern(*args, cursor=None, only_one=False, dct=None):
             t = args[cursor[0]]
             if not isinstance(t, str):
                 if isinstance(t, Pattern):
-                    res.append(t)
+                    res.append(t.clone())
                 elif callable(t):
                     res.append(F(t))
                 else:
@@ -668,6 +676,9 @@ class F(Pattern, InversiblePattern):
         self.fun = fun
         self.__name__ = name or self.fun.__name__
         super().__init__()
+
+    def clone(self):
+        return self.__class__(self.fun, self.__name__)
 
     def _match(self, x, with_follow=True):
         x0 = x.fork()
