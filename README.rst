@@ -47,7 +47,8 @@ where args is a list of strings or ``Pattern`` objects, and functions maps funct
 
 The args can be a string or a list of strings containing:
  - ``<string>``: will match the string inside <>
- - callable unction: X will match if function(X) returns True
+ - ``S(string)`` outside of quotes will escape the strings. This allows to match parenthesis for instance
+ - callable function: X will match if function(X) returns True
  - ``X?``: will be ignored or match X
  - ``X*``: will match if X matches repeatedly (greedy)
  - ``X*?``: will match if X matches repeatedly (non greedy)
@@ -64,6 +65,7 @@ The args can be a string or a list of strings containing:
  - ``X!``: will match if the item doesn't match X (X must match exactly 1 element)
 
 
-Both are equally valid and evaluate to the same result;
+The following expressions are equally valid and evaluate to the same result;
  - ``build_pattern('<hello>','<world>','.*')``
  - ``build_pattern('<hello><world>.*')``
+ - ``S('hello') + S('world') + ANY.star()``
