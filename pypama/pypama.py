@@ -42,7 +42,7 @@ class TokenProvider:
         return self.token_list[self.cursor]
 
     def fork(self):
-        return TokenProvider(self.token_list, self.cursor, self.captures)
+        return TokenProvider(self.token_list, self.cursor, self.captures.copy())
 
     def copy(self):
         return TokenProvider(self.token_list[:], self.cursor, self.captures.copy())
@@ -67,6 +67,11 @@ class TokenProvider:
         assert self.token_list == o.token_list
         self.cursor = o.cursor
         self.captures.update(o.captures)
+
+    def get_between(self, o):
+        assert self.token_list == o.token_list
+        assert 0 <= self.cursor <= o.cursor
+        return self.token_list[self.cursor:o.cursor]
 
 
 class MatchObject:
@@ -166,6 +171,37 @@ class Pattern:
         else:
             return None
 
+    def find(self, x:TokenProvider):
+        if not isinstance(x, TokenProvider):
+            x = TokenProvider(x)
+        while not x.is_empty():
+            x0 = x.fork()
+            m = self._match(x0)
+            if m:
+                if self.context.groups:
+                    yield m.group(1)
+                else:
+                    yield x.get_between(x0)
+                x.sync_with(x0)
+            else:
+                x.get()
+
+    def split(self, x:TokenProvider):
+        if not isinstance(x, TokenProvider):
+            x = TokenProvider(x)
+        x0 = x.fork()
+        while not x.is_empty():
+            x1 = x.fork()
+            if m:=self.match(x1):
+                yield x0.get_between(x)
+                if self.context.groups:
+                    yield m.group(1)
+                x.sync_with(x1)
+                x0.sync_with(x1)
+            else:
+                x.get()
+        yield x0.get_between(x)
+
     def _match(self, x, with_follow=True):
         raise NotImplementedError()
 
@@ -217,10 +253,11 @@ class PatternRegex(Pattern, InversiblePattern):
 
     def _match(self, x, with_follow=True):
         x0 = x.fork()
-        if (x0.check_not_empty() and
-                self.value.match(x0.get())):
-            x.sync_with(x0)
-            return True
+        if (x0.check_not_empty()):
+            val = x0.get()
+            if isinstance(val, str) and self.value.match(val):
+                x.sync_with(x0)
+                return True
         return False
 
     def __repr__(self):
@@ -320,7 +357,7 @@ class PatternInv(Pattern):
         return False
 
     def clone(self):
-        return self.__class__(self.clone)
+        return self.__class__(self.pattern)
 
 
 class PatternOptional(Pattern):
@@ -490,7 +527,8 @@ class PatternCapture(Pattern):
     def _match(self, x: TokenProvider, with_follow=True):
         start = x.cursor
         result = self.pattern._match(x)
-        x.captures[self.group] = x.token_list[start:x.cursor]  
+        if result:
+            x.captures[self.group] = x.token_list[start:x.cursor]  
         return result
 
     def __repr__(self):
@@ -618,7 +656,7 @@ def _build_pattern(*args, cursor=None, only_one=False, dct=None):
                     res.append(PatternMatchCapture(t))
                 elif t[0] == '<' and t[-1] == '>':
                     t = t[1:-1]
-                    m = re.match('(r|re|c|call):(.*)', t)
+                    m = re.match('([^:]+):(.*)', t)
                     if m:
                         typ, v = m.groups()
                         if typ in ('c', 'call'):
@@ -707,7 +745,7 @@ class F(Pattern, InversiblePattern):
         return F((lambda x: not self.fun(x)), f'{self.__name__}!')
 
     def __repr__(self):
-        return f'[f:{repr(self.__name__)}]'
+        return f'[c:{repr(self.__name__)}]'
 
     __str__ = __repr__
 
