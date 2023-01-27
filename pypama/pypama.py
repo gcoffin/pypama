@@ -125,7 +125,10 @@ class Pattern:
 
     @classmethod
     def make(cls, *args):
-        result = cls(*args)
+        if len(args) == 1 and isinstance(args[0], Pattern):
+            result = args[0]
+        else:
+            result = cls(*args)
         result.set_context(PatternContext())
         return result
 
@@ -171,12 +174,12 @@ class Pattern:
         else:
             return None
 
-    def find(self, x:TokenProvider):
+    def find(self, x:TokenProvider|List):
         if not isinstance(x, TokenProvider):
             x = TokenProvider(x)
         while not x.is_empty():
             x0 = x.fork()
-            m = self._match(x0)
+            m = self.match(x0)
             if m:
                 if self.context.groups:
                     yield m.group(1)
@@ -185,6 +188,19 @@ class Pattern:
                 x.sync_with(x0)
             else:
                 x.get()
+
+    def find_groupdict(self, x: TokenProvider|List):
+        if not isinstance(x, TokenProvider):
+            x = TokenProvider(x)
+        while not x.is_empty():
+            x0 = x.fork()
+            m = self.match(x0)
+            if m:
+                yield m.groupdict()
+                x.sync_with(x0)
+            else:
+                x.get()
+
 
     def split(self, x:TokenProvider):
         if not isinstance(x, TokenProvider):
@@ -308,6 +324,7 @@ class PatternSeq(Pattern):
     def __repr__(self):
         return f'[{",".join(repr(i) for i in self.patterns)}]'
 
+S = PatternSeq
 
 class PatternOr(Pattern):
     patterns: List[Pattern]

@@ -1,5 +1,6 @@
 from .pypama import (build_pattern,
-                     F,
+                     Pattern, 
+                     F, S,
                      is_num, is_int, is_none,
                      ANY, END,
                      TokenProvider
