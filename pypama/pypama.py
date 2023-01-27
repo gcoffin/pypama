@@ -7,7 +7,7 @@ A pattern matching library (for things that are not characters)
 
 """
 import re
-from typing import List, Optional
+from typing import List, Optional, Union
 
 
 class PatternParseError(Exception):
@@ -77,10 +77,11 @@ class TokenProvider:
 class MatchObject:
     '''result of a match'''
 
-    def __init__(self, context, captures, token_list):
+    def __init__(self, context, captures, token_list, cursor):
         self.context = context
         self.captures = captures
         self.token_list = token_list
+        self.final_cursor = cursor
 
     def groups(self):
         """Get all captured groups in a list"""
@@ -106,6 +107,11 @@ class MatchObject:
         """Get captured group by name"""
         return self.captures[self.context.groups.index(name)]
 
+    def tail(self):
+        return self.token_list[self.final_cursor:]
+
+    def matched(self):
+        return self.token_list[:self.final_cursor]
 
 class PatternContext:
     """store capture groups as they appear in the pattern.
@@ -170,11 +176,11 @@ class Pattern:
         if not isinstance(arg, TokenProvider):
             arg = TokenProvider(arg)
         if self._match(arg):
-            return MatchObject(self.context, arg.captures, arg.token_list)
+            return MatchObject(self.context, arg.captures, arg.token_list, arg.cursor)
         else:
             return None
 
-    def find(self, x:TokenProvider|List):
+    def find(self, x:Union[TokenProvider,List]):
         if not isinstance(x, TokenProvider):
             x = TokenProvider(x)
         while not x.is_empty():
@@ -189,7 +195,7 @@ class Pattern:
             else:
                 x.get()
 
-    def find_groupdict(self, x: TokenProvider|List):
+    def find_groupdict(self, x: Union[TokenProvider,List]):
         if not isinstance(x, TokenProvider):
             x = TokenProvider(x)
         while not x.is_empty():

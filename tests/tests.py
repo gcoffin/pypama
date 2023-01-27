@@ -178,6 +178,15 @@ class TestBasic(unittest.TestCase):
         self.assertIsNone(g.match(['a', 'a', 'b', '', None, 'b', 'c', 'e']))
 
 
+class TestMatch(unittest.TestCase):
+    def test_tail(self):
+        g = pm._build_pattern(
+            'a', '*', 'b'
+        )
+        self.assertEqual(g.match(list('aaabcde')).tail(), list('cde'))
+        self.assertEqual(g.match(list('aaabcde')).matched(), list('aaab '))
+
+
 class TestP(unittest.TestCase):
 
     def test_split(self):
